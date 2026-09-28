@@ -1,0 +1,6 @@
+{
+  "name": "Upkar Gardens Owners Association (R)",
+  "description": "Official Resident Portal & Association Management System for Upkar Gardens layout owners. Maintenance billing, ledger, online payments, NOC applications, site directory, and admin CMS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
