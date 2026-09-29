@@ -33,7 +33,7 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 
 export const api = {
   // Public
-  getAssociationInfo: () => request<any>('/api/public/association'),
+  getAssociationInfo: () => request<any>(`/api/public/association?_t=${Date.now()}`),
   getCommittee: () => request<any[]>('/api/public/committee'),
   getNotices: () => request<any[]>('/api/public/notices'),
   getAnnouncements: () => request<any[]>('/api/public/announcements'),
@@ -78,6 +78,9 @@ export const api = {
   },
   createProperty: (data: any) => request<any>('/api/admin/properties', { method: 'POST', body: JSON.stringify(data) }),
   updateProperty: (id: string, data: any) => request<any>(`/api/admin/properties/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  syncDemarcatedSites: (count?: number, resetBlank?: boolean) => 
+    request<any>('/api/admin/properties/sync-demarcated-sites', { method: 'POST', body: JSON.stringify({ count, resetBlank }) }),
+  setHistoricalArrears: (id: string, data: any) => request<any>(`/api/admin/properties/${id}/historical-arrears`, { method: 'POST', body: JSON.stringify(data) }),
   getAdminOwners: () => request<any[]>('/api/admin/owners'),
   createOwner: (data: any) => request<any>('/api/admin/owners', { method: 'POST', body: JSON.stringify(data) }),
   updateOwner: (id: string, data: any) => request<any>(`/api/admin/owners/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
@@ -129,6 +132,8 @@ export const api = {
   getCmsSettings: () => request<any>('/api/admin/cms/settings'),
   saveCmsSettings: (settings: Record<string, string>) =>
     request<any>('/api/admin/cms/settings', { method: 'POST', body: JSON.stringify({ settings }) }),
+  syncCmsWebsite: (data?: { updatedDate?: string; settings?: Record<string, string> }) =>
+    request<any>('/api/admin/cms/sync-website', { method: 'POST', body: JSON.stringify(data || {}) }),
 
   // Reports & Logs
   getCollectionReport: (params?: any) => {

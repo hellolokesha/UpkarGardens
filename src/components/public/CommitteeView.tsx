@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Phone, Mail, Award, Shield, User } from 'lucide-react';
+import { Phone, Mail, Award, Shield, User, Clock } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAssociation } from '../../context/AssociationContext';
 import { CommitteeMember } from '../../types';
 
 export const CommitteeView: React.FC = () => {
+  const { cmsUpdatedDate, phone, adminName } = useAssociation();
   const [committee, setCommittee] = useState<CommitteeMember[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -17,17 +19,27 @@ export const CommitteeView: React.FC = () => {
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-10">
       {/* Title */}
-      <div className="border-b border-slate-200 pb-6">
-        <span className="text-xs font-bold text-emerald-800 uppercase tracking-widest">
-          Association Leadership
-        </span>
-        <h1 className="text-3xl sm:text-4xl font-extrabold text-emerald-950 font-serif mt-1">
-          Managing Committee (2024 – 2026)
-        </h1>
-        <p className="text-sm text-slate-600 mt-2 max-w-3xl leading-relaxed">
-          Elected representatives entrusted by the General Body of Upkar Gardens Owners Association (R) 
-          to govern layout operations, finance, infrastructure development, and community welfare.
-        </p>
+      <div className="border-b border-slate-200 pb-6 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <span className="text-xs font-bold text-emerald-800 uppercase tracking-widest">
+            Association Leadership
+          </span>
+          <h1 className="text-3xl sm:text-4xl font-extrabold text-emerald-950 font-serif mt-1">
+            Managing Committee (2024 – 2026)
+          </h1>
+          <p className="text-sm text-slate-600 mt-2 max-w-3xl leading-relaxed">
+            Elected representatives entrusted by the General Body of Upkar Gardens Owners Association (R) 
+            to govern layout operations, finance, infrastructure development, and community welfare.
+          </p>
+        </div>
+
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2 shrink-0 flex items-center gap-2">
+          <Clock className="w-4 h-4 text-emerald-700" />
+          <div className="text-xs">
+            <span className="text-emerald-800 font-semibold block">Roster Synced Date:</span>
+            <span className="font-mono font-bold text-emerald-950">{cmsUpdatedDate}</span>
+          </div>
+        </div>
       </div>
 
       {loading ? (
@@ -61,7 +73,7 @@ export const CommitteeView: React.FC = () => {
                   </div>
                 ) : (
                   <div className="text-[11px] text-slate-400 italic">
-                    Contact via Association Desk: +91 80 2783 4567
+                    Contact via Association Desk: {phone || '+91 80 2783 4567'}
                   </div>
                 )}
 

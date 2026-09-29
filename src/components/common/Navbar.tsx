@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, User, LogOut, KeyRound, Menu, X, FileCheck, CheckCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAssociation } from '../../context/AssociationContext';
 
 interface NavbarProps {
   currentView: string;
@@ -10,6 +11,7 @@ interface NavbarProps {
 
 export const Navbar: React.FC<NavbarProps> = ({ currentView, setCurrentView, openAuthModal }) => {
   const { user, logout, isOwner, isAdmin, isCommittee } = useAuth();
+  const { regNo, address, emergencyPhone, phone } = useAssociation();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const navLinks = [
@@ -35,14 +37,14 @@ export const Navbar: React.FC<NavbarProps> = ({ currentView, setCurrentView, ope
       {/* Top Notification Bar */}
       <div className="bg-emerald-950 text-white text-[11px] sm:text-xs py-1.5 px-4 font-medium border-b border-emerald-900">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-1 text-center sm:text-left">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
             <span className="text-amber-400 font-semibold">Govt. Regd. Society:</span>
-            <span className="font-mono text-emerald-200">DRO-1/SOR/142/2018-19</span>
+            <span className="font-mono text-emerald-200">{regNo}</span>
             <span className="hidden md:inline text-emerald-600">|</span>
-            <span className="hidden md:inline text-emerald-200">Chandapura-Anekal Main Road, Bangalore</span>
+            <span className="hidden md:inline text-emerald-200 line-clamp-1 max-w-md">{address}</span>
           </div>
           <div className="flex items-center gap-4 text-emerald-200 text-[11px]">
-            <span>Security Desk: <strong className="text-white font-mono">+91 94801 23456</strong></span>
+            <span>Security Desk: <strong className="text-white font-mono">{emergencyPhone || phone}</strong></span>
             <button
               onClick={() => handleNavClick('verify-noc')}
               className="text-amber-300 hover:text-amber-200 underline font-semibold cursor-pointer"

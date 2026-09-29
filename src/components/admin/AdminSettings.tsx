@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, ShieldCheck, Download, CheckCircle2, Lock, History, KeyRound } from 'lucide-react';
+import { Settings, ShieldCheck, Download, CheckCircle2, Lock, History, KeyRound, Building, Calendar, Phone } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAssociation } from '../../context/AssociationContext';
 import { AuditLog } from '../../types';
 
 export const AdminSettings: React.FC = () => {
+  const { refreshAssociationInfo } = useAssociation();
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
@@ -29,8 +31,15 @@ export const AdminSettings: React.FC = () => {
     setSaving(true);
     setSaved(false);
     try {
-      await api.saveCmsSettings(settings);
+      const today = new Date().toISOString().split('T')[0];
+      const payload = {
+        ...settings,
+        website_cms_updated_date: settings.website_cms_updated_date || today
+      };
+      await api.saveCmsSettings(payload);
       setSaved(true);
+      window.dispatchEvent(new CustomEvent('cms-updated'));
+      await refreshAssociationInfo();
     } catch (err: any) {
       alert(err.message || 'Failed to update settings');
     } finally {

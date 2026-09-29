@@ -5,6 +5,7 @@ import {
   LogOut, Shield, ChevronRight, Layers, ArrowLeft, Upload 
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAssociation } from '../../context/AssociationContext';
 import { AdminDashboard } from './AdminDashboard';
 import { AdminProperties } from './AdminProperties';
 import { AdminOwners } from './AdminOwners';
@@ -24,6 +25,7 @@ interface AdminPortalProps {
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToWebsite }) => {
   const { user, logout } = useAuth();
+  const { regNo, regDate, settings } = useAssociation();
   const [activeModule, setActiveModule] = useState<string>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -80,16 +82,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToWebsite }) => 
           </button>
 
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-emerald-800 text-amber-300 flex items-center justify-center font-bold text-xs">
+            <div className="w-8 h-8 rounded-lg bg-emerald-800 text-amber-300 flex items-center justify-center font-bold text-xs shrink-0 shadow-inner">
               UGOA
             </div>
             <div>
               <span className="font-bold text-sm tracking-tight text-white block leading-tight">
-                Upkar Gardens Association Console
+                {settings.association_name || 'Upkar Gardens Association Console'}
               </span>
-              <span className="text-[10px] text-emerald-300 font-mono">
-                Regd: DRO-1/SOR/142/2018-19
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5 text-[10px] text-emerald-300 font-mono">
+                <span>Reg No: {regNo}</span>
+                <span className="text-emerald-500 font-bold">·</span>
+                <span>Date: {regDate}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -160,9 +164,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({ onBackToWebsite }) => 
             ))}
           </div>
 
-          <div className="p-4 border-t border-slate-100 bg-slate-50 text-[11px] text-slate-500">
-            <span className="font-bold text-slate-700 block">UGOA Management Suite</span>
-            <span>Version 2.4 · ACID Relational DB</span>
+          <div className="p-3.5 border-t border-slate-200/80 bg-slate-50 text-[11px] text-slate-500 space-y-1">
+            <span className="font-bold text-slate-800 block truncate leading-tight">
+              {settings.association_name || 'Upkar Gardens Owners Association'}
+            </span>
+            <div className="font-mono text-[10px] text-slate-600 flex items-center justify-between">
+              <span>Reg: {regNo}</span>
+              <span className="text-slate-400 font-medium">({regDate})</span>
+            </div>
+            <div className="text-[10px] text-emerald-700 font-semibold flex items-center gap-1.5 pt-0.5 border-t border-slate-200/60 mt-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Portal & CMS Data Synced</span>
+            </div>
           </div>
         </aside>
 

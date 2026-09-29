@@ -95,7 +95,7 @@ export const OwnerProfile: React.FC<OwnerProfileProps> = ({ owner, property }) =
 
             <div>
               <span className="text-slate-400 block font-medium">Layout Phase / Block</span>
-              <span className="text-slate-800 font-semibold">{property.block_phase || 'Phase 1'}</span>
+              <span className="text-slate-800 font-semibold">{property.block_phase || 'North Block'}</span>
             </div>
 
             <div>

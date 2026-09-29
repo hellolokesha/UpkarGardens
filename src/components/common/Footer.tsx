@@ -1,5 +1,6 @@
 import React from 'react';
-import { Shield, Phone, Mail, MapPin, ExternalLink, Award } from 'lucide-react';
+import { Shield, Phone, Mail, MapPin, ExternalLink, Award, Calendar } from 'lucide-react';
+import { useAssociation } from '../../context/AssociationContext';
 
 interface FooterProps {
   setCurrentView: (view: string) => void;
@@ -7,6 +8,8 @@ interface FooterProps {
 }
 
 export const Footer: React.FC<FooterProps> = ({ setCurrentView, openAuthModal }) => {
+  const { regNo, address, phone, emergencyPhone, email, adminName, cmsUpdatedDate } = useAssociation();
+
   const handleNav = (view: string) => {
     setCurrentView(view);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -27,7 +30,7 @@ export const Footer: React.FC<FooterProps> = ({ setCurrentView, openAuthModal })
                   UPKAR GARDENS OWNERS ASSOCIATION (R)
                 </span>
                 <span className="block text-[11px] text-emerald-400 font-medium tracking-wider uppercase">
-                  Reg No: DRO-1/SOR/142/2018-19
+                  Reg No: {regNo}
                 </span>
               </div>
             </div>
@@ -38,9 +41,20 @@ export const Footer: React.FC<FooterProps> = ({ setCurrentView, openAuthModal })
               and community welfare.
             </p>
 
-            <div className="pt-2 flex items-center gap-3 text-slate-300 text-xs">
-              <Award className="w-4 h-4 text-amber-400" />
-              <span>Model Residential Layout Community · Bangalore South</span>
+            <div className="pt-2 flex flex-col gap-1.5 text-slate-300 text-xs">
+              <div className="flex items-center gap-2">
+                <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Model Residential Layout Community · Bangalore South</span>
+              </div>
+              <div className="flex items-center gap-2 text-emerald-400 text-[11px]">
+                <Calendar className="w-3.5 h-3.5 shrink-0" />
+                <span>Website CMS Data Synced: <strong className="font-mono text-emerald-300">{cmsUpdatedDate}</strong></span>
+              </div>
+              {adminName && (
+                <div className="text-[11px] text-slate-400">
+                  Leadership: <span className="text-slate-200 font-medium">{adminName}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -131,19 +145,19 @@ export const Footer: React.FC<FooterProps> = ({ setCurrentView, openAuthModal })
             <ul className="space-y-2.5 text-xs">
               <li className="flex items-start gap-2">
                 <MapPin className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
-                <span>Clubhouse Office, Upkar Gardens, Chandapura-Anekal Rd, Bangalore 560099</span>
+                <span className="leading-snug">{address}</span>
               </li>
               <li className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="font-mono text-slate-300">+91 80 2783 4567</span>
+                <span className="font-mono text-slate-300">{phone}</span>
               </li>
               <li className="flex items-center gap-2">
                 <Phone className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Security Desk: <strong className="font-mono text-white">+91 94801 23456</strong></span>
+                <span>Security Desk: <strong className="font-mono text-white">{emergencyPhone}</strong></span>
               </li>
               <li className="flex items-center gap-2">
                 <Mail className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span className="text-slate-300">contact@upkargardens.org</span>
+                <span className="text-slate-300">{email}</span>
               </li>
             </ul>
           </div>

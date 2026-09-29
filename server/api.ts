@@ -67,14 +67,49 @@ function logAudit(userId: string | null, userName: string, role: string, action:
   }
 }
 
+// Helpers to get live association statutory settings
+function getAssociationRegistrationDate(): string {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'registration_date'").get() as { value: string } | undefined;
+    return row?.value || '2018-10-12';
+  } catch (_) {
+    return '2018-10-12';
+  }
+}
+
+function getAssociationRegistrationNumber(): string {
+  try {
+    const row = db.prepare("SELECT value FROM settings WHERE key = 'registration_number'").get() as { value: string } | undefined;
+    return row?.value || 'DRO-1/SOR/142/2018-19';
+  } catch (_) {
+    return 'DRO-1/SOR/142/2018-19';
+  }
+}
+
 // -------------------------------------------------------------
 // 1. PUBLIC ENDPOINTS
 // -------------------------------------------------------------
 
 apiRouter.get('/public/association', (req, res) => {
   try {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     const settingsRows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
-    const settings: Record<string, string> = {};
+    const settings: Record<string, string> = {
+      association_name: 'Upkar Gardens Owners Association (R)',
+      registration_number: 'DRO-1/SOR/142/2018-19',
+      registration_date: '2018-10-12',
+      total_sites_count: '176',
+      address: 'Clubhouse & Association Office, Upkar Gardens Layout, Chandapura-Anekal Main Road, Bangalore - 560099, Karnataka',
+      contact_phone: '+91 80 2783 4567',
+      emergency_phone: '+91 94801 23456',
+      contact_email: 'contact@upkargardens.org',
+      admin_name: 'Sri. K. Venkatesh (President)',
+      admin_phone: '+91 98450 12345',
+      admin_email: 'president@upkargardens.org',
+      website_cms_updated_date: new Date().toISOString().split('T')[0],
+      about_mission: 'To foster a secure, clean, self-sustaining, vibrant residential community with transparent governance, dependable infrastructure, and equitable association services for every property owner.',
+      about_vision: 'To establish Upkar Gardens as one of Bangalore South’s model eco-friendly, green, and technologically connected residential layouts.'
+    };
     settingsRows.forEach(r => { settings[r.key] = r.value; });
 
     const totalSites = db.prepare('SELECT count(*) as count FROM properties').get() as { count: number };
@@ -84,7 +119,7 @@ apiRouter.get('/public/association', (req, res) => {
     res.json({
       settings,
       stats: {
-        totalSites: totalSites?.count || 350,
+        totalSites: parseInt(settings.total_sites_count || '', 10) || totalSites?.count || 176,
         occupiedSites: occupiedSites?.count || 0,
         totalOwners: totalOwners?.count || 0,
         layoutArea: '45 Acres',
@@ -1186,8 +1221,12 @@ apiRouter.get('/admin/properties', authenticate, authorizeRoles('SUPER_ADMIN', '
     }
 
     if (block) {
-      query += ` AND p.block_phase = ?`;
-      params.push(block);
+      if (block === 'UNASSIGNED' || block === 'BLANK') {
+        query += ` AND (p.block_phase IS NULL OR p.block_phase = '' OR p.block_phase = '—')`;
+      } else {
+        query += ` AND p.block_phase = ?`;
+        params.push(block);
+      }
     }
 
     if (status) {
@@ -1209,11 +1248,64 @@ apiRouter.get('/admin/properties', authenticate, authorizeRoles('SUPER_ADMIN', '
   }
 });
 
+// Endpoint to synchronize all demarcated sites as per Association Profile CMS (or specified count)
+apiRouter.post('/admin/properties/sync-demarcated-sites', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN'), (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { count, resetBlank = true } = req.body;
+    
+    let targetCount = 176;
+    if (count && !isNaN(parseInt(count, 10))) {
+      targetCount = parseInt(count, 10);
+      db.prepare("INSERT OR REPLACE INTO settings (key, value, description) VALUES ('total_sites_count', ?, 'Total Layout Sites')").run(String(targetCount));
+    } else {
+      const row = db.prepare("SELECT value FROM settings WHERE key = 'total_sites_count'").get() as { value: string } | undefined;
+      targetCount = parseInt(row?.value || '176', 10) || 176;
+    }
+
+    const insertProp = db.prepare(`
+      INSERT OR IGNORE INTO properties (
+        id, site_number, house_number, block_phase, property_type, address, 
+        status, occupancy_status, owner_id, maintenance_category, monthly_maintenance, 
+        outstanding_balance, remarks
+      ) VALUES (?, ?, '', '', 'Plot / Site', ?, 'Vacant', 'None', NULL, 'cat_plot_res', 1500, 0, '')
+    `);
+
+    db.transaction(() => {
+      // Remove any out-of-range properties without bills
+      db.prepare("DELETE FROM properties WHERE CAST(site_number AS INTEGER) > ? AND id NOT IN (SELECT property_id FROM maintenance_bills)").run(targetCount);
+
+      // Create all sites from 1 to targetCount
+      for (let i = 1; i <= targetCount; i++) {
+        insertProp.run(`prop_${i}`, String(i), `Plot No. ${i}, Upkar Gardens`);
+      }
+
+      if (resetBlank) {
+        db.prepare(`
+          UPDATE properties 
+          SET block_phase = '', owner_id = NULL, house_number = ''
+          WHERE CAST(site_number AS INTEGER) BETWEEN 1 AND ?
+        `).run(targetCount);
+      }
+    })();
+
+    logAudit(user.id, user.name, user.role, 'SYNC_DEMARCATED_SITES', 'PropertyDirectory', null, `Synchronized all ${targetCount} sites as per Association Profile CMS (Block & Owner blank: ${resetBlank})`);
+
+    res.json({ success: true, count: targetCount, message: `All ${targetCount} demarcated sites successfully synchronized in site directory` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Add new site / property
 apiRouter.post('/admin/properties', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN'), (req, res) => {
   try {
     const user = (req as any).user;
-    const { siteNumber, houseNumber, blockPhase, propertyType, status, occupancyStatus, ownerId, maintenanceCategory, monthlyMaintenance, remarks } = req.body;
+    const { 
+      siteNumber, houseNumber, blockPhase, propertyType, status, occupancyStatus, ownerId, 
+      maintenanceCategory, monthlyMaintenance, remarks,
+      arrearsFromDate, arrearsTillDate, arrearsMonthsCount, pendingMaintenanceAmount, arrearsNotes
+    } = req.body;
 
     if (!siteNumber) {
       return res.status(400).json({ error: 'Site number is required' });
@@ -1225,24 +1317,61 @@ apiRouter.post('/admin/properties', authenticate, authorizeRoles('SUPER_ADMIN', 
     }
 
     const id = 'prop_' + Date.now();
-    db.prepare(`
-      INSERT INTO properties (id, site_number, house_number, block_phase, property_type, status, occupancy_status, owner_id, maintenance_category, monthly_maintenance, outstanding_balance, remarks)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
-    `).run(
-      id,
-      siteNumber,
-      houseNumber || '',
-      blockPhase || 'Phase 1',
-      propertyType || 'Plot / Site',
-      status || 'Vacant',
-      occupancyStatus || 'None',
-      ownerId || null,
-      maintenanceCategory || 'cat_plot_res',
-      monthlyMaintenance || 1500,
-      remarks || ''
-    );
+    const pendingAmt = parseFloat(pendingMaintenanceAmount) || 0;
+    const defaultRegDate = getAssociationRegistrationDate();
+    const fromDate = arrearsFromDate || (pendingAmt > 0 ? defaultRegDate : null);
+    const tillDate = arrearsTillDate || (pendingAmt > 0 ? new Date().toISOString().split('T')[0] : null);
+    const months = parseInt(arrearsMonthsCount, 10) || 0;
+    const normalizedBlock = blockPhase ? (String(blockPhase).trim().toLowerCase().includes('south') ? 'South Block' : (String(blockPhase).trim().toLowerCase().includes('north') ? 'North Block' : String(blockPhase).trim())) : '';
 
-    logAudit(user.id, user.name, user.role, 'ADD_PROPERTY', 'Property', id, `Added Site #${siteNumber}`);
+    const tx = db.transaction(() => {
+      db.prepare(`
+        INSERT INTO properties (
+          id, site_number, house_number, block_phase, property_type, status, occupancy_status, 
+          owner_id, maintenance_category, monthly_maintenance, outstanding_balance, remarks,
+          arrears_from_date, arrears_till_date, arrears_months_count, arrears_notes
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        id,
+        siteNumber,
+        houseNumber || '',
+        normalizedBlock,
+        propertyType || 'Plot / Site',
+        status || 'Vacant',
+        occupancyStatus || 'None',
+        ownerId || null,
+        maintenanceCategory || 'cat_plot_res',
+        monthlyMaintenance || 1500,
+        pendingAmt,
+        remarks || '',
+        fromDate,
+        tillDate,
+        months,
+        arrearsNotes || ''
+      );
+
+      // If historical pending arrears are provided, post to ledger and create opening bill
+      if (pendingAmt > 0) {
+        const desc = arrearsNotes || `Historical Pending Maintenance from Association Registered Date (${fromDate} to ${tillDate}) [${months} months]`;
+        const ledId = 'led_arr_' + Date.now();
+        db.prepare(`
+          INSERT INTO ledger_entries (id, property_id, owner_id, transaction_date, entry_type, reference_type, reference_id, description, debit, credit, running_balance)
+          VALUES (?, ?, ?, ?, 'DEBIT', 'HISTORICAL_ARREARS', 'REG_2018', ?, ?, 0, ?)
+        `).run(ledId, id, ownerId || null, tillDate, desc, pendingAmt, pendingAmt);
+
+        const billNum = `UGOA/ARREARS/REG-2018/${siteNumber}`;
+        const billId = 'bill_arr_' + Date.now();
+        db.prepare(`
+          INSERT INTO maintenance_bills (id, bill_number, property_id, owner_id, billing_period, billing_date, due_date, previous_balance, current_charge, late_fee, other_charges, amount_paid, outstanding_amount, status, description)
+          VALUES (?, ?, ?, ?, 'Oct 2018 - Till Date (Arrears)', ?, ?, 0, ?, 0, 0, 0, ?, 'Overdue', ?)
+        `).run(billId, billNum, id, ownerId || null, fromDate, tillDate, pendingAmt, pendingAmt, desc);
+      }
+
+      logAudit(user.id, user.name, user.role, 'ADD_PROPERTY', 'Property', id, `Added Site #${siteNumber}${pendingAmt > 0 ? ` with pending maintenance from registration date of ₹${pendingAmt}` : ''}`);
+    });
+
+    tx();
 
     res.json({ success: true, message: `Site #${siteNumber} added successfully`, id });
   } catch (error: any) {
@@ -1255,30 +1384,151 @@ apiRouter.put('/admin/properties/:id', authenticate, authorizeRoles('SUPER_ADMIN
   try {
     const user = (req as any).user;
     const { id } = req.params;
-    const { siteNumber, houseNumber, blockPhase, propertyType, status, occupancyStatus, ownerId, maintenanceCategory, monthlyMaintenance, remarks } = req.body;
+    const { 
+      siteNumber, houseNumber, blockPhase, propertyType, status, occupancyStatus, ownerId, 
+      maintenanceCategory, monthlyMaintenance, remarks,
+      arrearsFromDate, arrearsTillDate, arrearsMonthsCount, pendingMaintenanceAmount, arrearsNotes
+    } = req.body;
 
-    db.prepare(`
-      UPDATE properties 
-      SET site_number = ?, house_number = ?, block_phase = ?, property_type = ?, status = ?, occupancy_status = ?,
-          owner_id = ?, maintenance_category = ?, monthly_maintenance = ?, remarks = ?, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ?
-    `).run(
-      siteNumber,
-      houseNumber,
-      blockPhase,
-      propertyType,
-      status,
-      occupancyStatus,
-      ownerId || null,
-      maintenanceCategory,
-      monthlyMaintenance,
-      remarks,
-      id
-    );
+    const prop = db.prepare('SELECT * FROM properties WHERE id = ?').get(id) as any;
+    if (!prop) return res.status(404).json({ error: 'Property not found' });
 
-    logAudit(user.id, user.name, user.role, 'UPDATE_PROPERTY', 'Property', id, `Updated Site #${siteNumber} details`);
+    const hasNewPending = pendingMaintenanceAmount !== undefined && pendingMaintenanceAmount !== null && pendingMaintenanceAmount !== '';
+    const pendingAmt = hasNewPending ? parseFloat(pendingMaintenanceAmount) : prop.outstanding_balance;
+    const fromDate = arrearsFromDate !== undefined ? arrearsFromDate : prop.arrears_from_date;
+    const tillDate = arrearsTillDate !== undefined ? arrearsTillDate : prop.arrears_till_date;
+    const months = arrearsMonthsCount !== undefined ? (parseInt(arrearsMonthsCount, 10) || 0) : prop.arrears_months_count;
+    const notes = arrearsNotes !== undefined ? arrearsNotes : prop.arrears_notes;
+    const normalizedBlock = blockPhase ? (String(blockPhase).trim().toLowerCase().includes('south') ? 'South Block' : (String(blockPhase).trim().toLowerCase().includes('north') ? 'North Block' : String(blockPhase).trim())) : '';
+
+    const tx = db.transaction(() => {
+      db.prepare(`
+        UPDATE properties 
+        SET site_number = ?, house_number = ?, block_phase = ?, property_type = ?, status = ?, occupancy_status = ?,
+            owner_id = ?, maintenance_category = ?, monthly_maintenance = ?, remarks = ?,
+            outstanding_balance = ?, arrears_from_date = ?, arrears_till_date = ?, arrears_months_count = ?, arrears_notes = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(
+        siteNumber,
+        houseNumber,
+        normalizedBlock,
+        propertyType,
+        status,
+        occupancyStatus,
+        ownerId || null,
+        maintenanceCategory,
+        monthlyMaintenance,
+        remarks,
+        pendingAmt,
+        fromDate,
+        tillDate,
+        months,
+        notes,
+        id
+      );
+
+      // If pendingMaintenanceAmount was explicitly provided and differs, synchronize ledger and bill
+      if (hasNewPending && parseFloat(pendingMaintenanceAmount) !== prop.outstanding_balance) {
+        const defaultRegDate = getAssociationRegistrationDate();
+        const desc = notes || `Adjusted Historical Pending Maintenance (${fromDate || defaultRegDate} to ${tillDate || 'Till Date'}) [${months} months]`;
+        const existingLedger = db.prepare("SELECT id FROM ledger_entries WHERE property_id = ? AND reference_type = 'HISTORICAL_ARREARS'").get(id) as any;
+        if (existingLedger) {
+          db.prepare("UPDATE ledger_entries SET description = ?, debit = ?, running_balance = ? WHERE id = ?").run(desc, pendingAmt, pendingAmt, existingLedger.id);
+        } else if (pendingAmt > 0) {
+          const ledId = 'led_arr_' + Date.now();
+          db.prepare(`
+            INSERT INTO ledger_entries (id, property_id, owner_id, transaction_date, entry_type, reference_type, reference_id, description, debit, credit, running_balance)
+            VALUES (?, ?, ?, ?, 'DEBIT', 'HISTORICAL_ARREARS', 'REG_DATE', ?, ?, 0, ?)
+          `).run(ledId, id, ownerId || null, tillDate || new Date().toISOString().split('T')[0], desc, pendingAmt, pendingAmt);
+        }
+
+        const billNum = `UGOA/ARREARS/REG/${siteNumber}`;
+        const existingBill = db.prepare("SELECT id FROM maintenance_bills WHERE bill_number = ?").get(billNum) as any;
+        if (existingBill) {
+          db.prepare("UPDATE maintenance_bills SET current_charge = ?, outstanding_amount = ?, description = ? WHERE id = ?").run(pendingAmt, pendingAmt, desc, existingBill.id);
+        } else if (pendingAmt > 0) {
+          const billId = 'bill_arr_' + Date.now();
+          db.prepare(`
+            INSERT INTO maintenance_bills (id, bill_number, property_id, owner_id, billing_period, billing_date, due_date, previous_balance, current_charge, late_fee, other_charges, amount_paid, outstanding_amount, status, description)
+            VALUES (?, ?, ?, ?, 'Arrears from Registration Date', ?, ?, 0, ?, 0, 0, 0, ?, 'Overdue', ?)
+          `).run(billId, billNum, id, ownerId || null, fromDate || defaultRegDate, tillDate || new Date().toISOString().split('T')[0], pendingAmt, pendingAmt, desc);
+        }
+      }
+
+      logAudit(user.id, user.name, user.role, 'UPDATE_PROPERTY', 'Property', id, `Updated Site #${siteNumber} details${hasNewPending ? ` (Pending Balance: ₹${pendingAmt})` : ''}`);
+    });
+
+    tx();
 
     res.json({ success: true, message: `Site #${siteNumber} updated successfully` });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Dedicated endpoint to set/update historical arrears from association registration date
+apiRouter.post('/admin/properties/:id/historical-arrears', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'TREASURER'), (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+    const { arrearsFromDate, arrearsTillDate, arrearsMonthsCount, pendingAmount, notes } = req.body;
+    const amt = parseFloat(pendingAmount) || 0;
+
+    const prop = db.prepare('SELECT * FROM properties WHERE id = ?').get(id) as any;
+    if (!prop) return res.status(404).json({ error: 'Property not found' });
+
+    const startDate = arrearsFromDate || getAssociationRegistrationDate();
+    const endDate = arrearsTillDate || new Date().toISOString().split('T')[0];
+    const months = parseInt(arrearsMonthsCount, 10) || 0;
+    const desc = notes || `Historical Pending Maintenance from Association Registered Date (${startDate} to ${endDate}) [${months} months]`;
+
+    const tx = db.transaction(() => {
+      // 1. Update property
+      db.prepare(`
+        UPDATE properties
+        SET outstanding_balance = ?, arrears_from_date = ?, arrears_till_date = ?, arrears_months_count = ?, arrears_notes = ?, updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(amt, startDate, endDate, months, desc, id);
+
+      // 2. Add or update ledger entry for historical arrears
+      const existingLedger = db.prepare("SELECT id FROM ledger_entries WHERE property_id = ? AND reference_type = 'HISTORICAL_ARREARS'").get(id) as any;
+      if (existingLedger) {
+        db.prepare(`
+          UPDATE ledger_entries
+          SET description = ?, debit = ?, running_balance = ?, transaction_date = ?
+          WHERE id = ?
+        `).run(desc, amt, amt, endDate, existingLedger.id);
+      } else if (amt > 0) {
+        const ledId = 'led_arr_' + Date.now();
+        db.prepare(`
+          INSERT INTO ledger_entries (id, property_id, owner_id, transaction_date, entry_type, reference_type, reference_id, description, debit, credit, running_balance)
+          VALUES (?, ?, ?, ?, 'DEBIT', 'HISTORICAL_ARREARS', 'REG_2018', ?, ?, 0, ?)
+        `).run(ledId, id, prop.owner_id || null, endDate, desc, amt, amt);
+      }
+
+      // 3. Add or update historical arrears bill in maintenance_bills
+      const billNum = `UGOA/ARREARS/REG-2018/${prop.site_number}`;
+      const existingBill = db.prepare("SELECT id FROM maintenance_bills WHERE bill_number = ?").get(billNum) as any;
+      if (existingBill) {
+        db.prepare(`
+          UPDATE maintenance_bills
+          SET current_charge = ?, outstanding_amount = ?, due_date = ?, description = ?, status = ?
+          WHERE id = ?
+        `).run(amt, amt, endDate, desc, amt > 0 ? 'Overdue' : 'Paid', existingBill.id);
+      } else if (amt > 0) {
+        const billId = 'bill_arr_' + Date.now();
+        db.prepare(`
+          INSERT INTO maintenance_bills (id, bill_number, property_id, owner_id, billing_period, billing_date, due_date, previous_balance, current_charge, late_fee, other_charges, amount_paid, outstanding_amount, status, description)
+          VALUES (?, ?, ?, ?, 'Oct 2018 - Till Date (Arrears)', ?, ?, 0, ?, 0, 0, 0, ?, 'Overdue', ?)
+        `).run(billId, billNum, id, prop.owner_id || null, startDate, endDate, amt, amt, desc);
+      }
+
+      logAudit(user.id, user.name, user.role, 'SET_HISTORICAL_ARREARS', 'Property', id, `Set pending maintenance for Site #${prop.site_number} from registration date (${startDate} to ${endDate}) to ₹${amt}. Notes: ${desc}`);
+    });
+
+    tx();
+    res.json({ success: true, message: `Pending maintenance from registration date set to ₹${amt.toLocaleString('en-IN')} for Site #${prop.site_number}` });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2210,11 +2460,34 @@ apiRouter.delete('/admin/cms/documents/:id', authenticate, authorizeRoles('SUPER
   }
 });
 
-// CMS Committee Members CRUD
+// CMS Committee Members CRUD with Photo Upload and Portal Access Rights
 apiRouter.get('/admin/cms/committee', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'SECRETARY'), (req, res) => {
   try {
-    const members = db.prepare('SELECT * FROM committee_members ORDER BY display_order ASC').all();
-    res.json(members);
+    const members = db.prepare(`
+      SELECT cm.*, u.is_active as user_active, u.username as linked_username
+      FROM committee_members cm
+      LEFT JOIN users u ON cm.user_id = u.id
+      ORDER BY cm.display_order ASC
+    `).all() as any[];
+
+    const formatted = members.map(m => {
+      let permissions = [];
+      if (m.access_permissions) {
+        try {
+          permissions = typeof m.access_permissions === 'string' ? JSON.parse(m.access_permissions) : m.access_permissions;
+        } catch (_) {
+          permissions = String(m.access_permissions).split(',').filter(Boolean);
+        }
+      }
+      return {
+        ...m,
+        portal_access_enabled: m.portal_access_enabled === 1 || m.access_role !== 'NO_ACCESS',
+        access_permissions: permissions,
+        has_active_account: m.user_active === 1
+      };
+    });
+
+    res.json(formatted);
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
@@ -2223,37 +2496,189 @@ apiRouter.get('/admin/cms/committee', authenticate, authorizeRoles('SUPER_ADMIN'
 apiRouter.post('/admin/cms/committee', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'SECRETARY'), (req, res) => {
   try {
     const user = (req as any).user;
-    const { id, name, designation, photoUrl, phone, email, termStart, termEnd, displayOrder, showContactPublic } = req.body;
+    const { 
+      id, name, designation, photoUrl, phone, email, termStart, termEnd, displayOrder, showContactPublic,
+      portalAccessEnabled, accessRole, accessPermissions, loginUsername, loginPassword
+    } = req.body;
 
     if (!name || !designation) return res.status(400).json({ error: 'Name and designation are required' });
 
-    if (id) {
-      db.prepare(`
-        UPDATE committee_members
-        SET name = ?, designation = ?, photo_url = ?, phone = ?, email = ?, term_start = ?, term_end = ?, display_order = ?, show_contact_public = ?
-        WHERE id = ?
-      `).run(name, designation, photoUrl || '', phone || '', email || '', termStart || '', termEnd || '', displayOrder || 1, showContactPublic ? 1 : 0, id);
-      logAudit(user.id, user.name, user.role, 'EDIT_COMMITTEE_MEMBER', 'Committee Member', id, `Updated committee member ${name}`);
-    } else {
-      const newId = 'cm_' + Date.now();
-      db.prepare(`
-        INSERT INTO committee_members (id, name, designation, photo_url, phone, email, term_start, term_end, display_order, show_contact_public)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(newId, name, designation, photoUrl || '', phone || '', email || '', termStart || '', termEnd || '', displayOrder || 1, showContactPublic ? 1 : 0);
-      logAudit(user.id, user.name, user.role, 'ADD_COMMITTEE_MEMBER', 'Committee Member', newId, `Added committee member ${name} (${designation})`);
+    const isAccessEnabled = portalAccessEnabled === true || portalAccessEnabled === 1 || (accessRole && accessRole !== 'NO_ACCESS');
+    const role = isAccessEnabled ? (accessRole || 'COMMITTEE_MEMBER') : 'NO_ACCESS';
+    const permissionsStr = Array.isArray(accessPermissions) ? JSON.stringify(accessPermissions) : (typeof accessPermissions === 'string' ? accessPermissions : '[]');
+    
+    // Auto-generate clean username if access is granted but username empty
+    let cleanUsername = (loginUsername || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+    if (isAccessEnabled && !cleanUsername) {
+      cleanUsername = name.toLowerCase().replace(/[^a-z0-9]/g, '.').replace(/\.+/g, '.').replace(/^\.|\.$/g, '');
+      if (cleanUsername.length < 3) cleanUsername = 'member.' + Date.now().toString().slice(-4);
     }
 
-    res.json({ success: true, message: 'Committee member saved successfully' });
+    const tx = db.transaction(() => {
+      let memberId = id;
+      let existingMember = memberId ? db.prepare('SELECT * FROM committee_members WHERE id = ?').get(memberId) as any : null;
+      let linkedUserId = existingMember?.user_id || null;
+
+      // Handle Portal Access User Account
+      if (isAccessEnabled) {
+        if (linkedUserId) {
+          // Update existing user account
+          const updateUserSql = loginPassword 
+            ? 'UPDATE users SET username = ?, password_hash = ?, role = ?, name = ?, phone = ?, email = ?, is_active = 1 WHERE id = ?'
+            : 'UPDATE users SET username = ?, role = ?, name = ?, phone = ?, email = ?, is_active = 1 WHERE id = ?';
+          const updateParams = loginPassword 
+            ? [cleanUsername, loginPassword, role, name, phone || '', email || '', linkedUserId]
+            : [cleanUsername, role, name, phone || '', email || '', linkedUserId];
+          
+          try {
+            db.prepare(updateUserSql).run(...updateParams);
+          } catch (uErr: any) {
+            // If username collision, append random digits
+            if (uErr.message?.includes('UNIQUE')) {
+              cleanUsername = `${cleanUsername}_${Math.floor(100 + Math.random() * 900)}`;
+              updateParams[0] = cleanUsername;
+              db.prepare(updateUserSql).run(...updateParams);
+            } else {
+              throw uErr;
+            }
+          }
+        } else {
+          // Check if username already exists in users
+          const existingUser = cleanUsername ? db.prepare('SELECT id FROM users WHERE username = ?').get(cleanUsername) as any : null;
+          if (existingUser) {
+            linkedUserId = existingUser.id;
+            const updateSql = loginPassword 
+              ? 'UPDATE users SET password_hash = ?, role = ?, name = ?, phone = ?, email = ?, is_active = 1 WHERE id = ?'
+              : 'UPDATE users SET role = ?, name = ?, phone = ?, email = ?, is_active = 1 WHERE id = ?';
+            const params = loginPassword 
+              ? [loginPassword, role, name, phone || '', email || '', linkedUserId]
+              : [role, name, phone || '', email || '', linkedUserId];
+            db.prepare(updateSql).run(...params);
+          } else {
+            // Create brand new user login
+            linkedUserId = 'u_cm_' + Date.now();
+            const initialPassword = loginPassword || 'upkar123';
+            db.prepare(`
+              INSERT INTO users (id, username, password_hash, role, name, phone, email, is_active)
+              VALUES (?, ?, ?, ?, ?, ?, ?, 1)
+            `).run(linkedUserId, cleanUsername, initialPassword, role, name, phone || '', email || '');
+          }
+        }
+      } else {
+        // Portal access revoked or disabled
+        if (linkedUserId) {
+          db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(linkedUserId);
+        }
+      }
+
+      if (memberId) {
+        db.prepare(`
+          UPDATE committee_members
+          SET name = ?, designation = ?, photo_url = ?, phone = ?, email = ?, term_start = ?, term_end = ?,
+              display_order = ?, show_contact_public = ?, access_role = ?, portal_access_enabled = ?,
+              access_permissions = ?, login_username = ?, user_id = ?
+          WHERE id = ?
+        `).run(
+          name, 
+          designation, 
+          photoUrl || '', 
+          phone || '', 
+          email || '', 
+          termStart || '2024-10-01', 
+          termEnd || '2026-09-30', 
+          displayOrder || 1, 
+          showContactPublic ? 1 : 0,
+          role,
+          isAccessEnabled ? 1 : 0,
+          permissionsStr,
+          cleanUsername || null,
+          linkedUserId,
+          memberId
+        );
+        logAudit(user.id, user.name, user.role, 'EDIT_COMMITTEE_MEMBER', 'Committee Member', memberId, `Updated committee member ${name} (${designation}) with portal access: ${role}`);
+      } else {
+        memberId = 'cm_' + Date.now();
+        db.prepare(`
+          INSERT INTO committee_members (
+            id, name, designation, photo_url, phone, email, term_start, term_end, 
+            display_order, show_contact_public, access_role, portal_access_enabled, access_permissions, login_username, user_id
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          memberId, 
+          name, 
+          designation, 
+          photoUrl || '', 
+          phone || '', 
+          email || '', 
+          termStart || '2024-10-01', 
+          termEnd || '2026-09-30', 
+          displayOrder || 1, 
+          showContactPublic ? 1 : 0,
+          role,
+          isAccessEnabled ? 1 : 0,
+          permissionsStr,
+          cleanUsername || null,
+          linkedUserId
+        );
+        logAudit(user.id, user.name, user.role, 'ADD_COMMITTEE_MEMBER', 'Committee Member', memberId, `Added committee member ${name} (${designation}) with portal access: ${role}`);
+      }
+
+      return { memberId, cleanUsername, role, isAccessEnabled };
+    });
+
+    const result = tx();
+    res.json({ 
+      success: true, 
+      message: `Committee member "${name}" saved successfully${result.isAccessEnabled ? ` with ${result.role} portal access (Username: ${result.cleanUsername})` : ''}`,
+      result 
+    });
+  } catch (error: any) {
+    console.error('Save committee error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+apiRouter.delete('/admin/cms/committee/:id', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'SECRETARY'), (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+    const member = db.prepare('SELECT * FROM committee_members WHERE id = ?').get(id) as any;
+    if (!member) return res.status(404).json({ error: 'Committee member not found' });
+
+    const tx = db.transaction(() => {
+      if (member.user_id) {
+        db.prepare('UPDATE users SET is_active = 0 WHERE id = ?').run(member.user_id);
+      }
+      db.prepare('DELETE FROM committee_members WHERE id = ?').run(id);
+      logAudit(user.id, user.name, user.role, 'DELETE_COMMITTEE_MEMBER', 'Committee Member', id, `Removed committee member ${member.name}`);
+    });
+
+    tx();
+    res.json({ success: true, message: 'Committee member deleted successfully' });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // Association Settings
-apiRouter.get('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'TREASURER'), (req, res) => {
+apiRouter.get('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'TREASURER', 'SECRETARY', 'COMMITTEE_MEMBER'), (req, res) => {
   try {
-    const rows = db.prepare('SELECT key, value, description FROM settings').all();
-    const settings: Record<string, string> = {};
+    const rows = db.prepare('SELECT key, value, description FROM settings').all() as { key: string; value: string }[];
+    const settings: Record<string, string> = {
+      association_name: 'Upkar Gardens Owners Association (R)',
+      registration_number: 'DRO-1/SOR/142/2018-19',
+      registration_date: '2018-10-12',
+      total_sites_count: '176',
+      address: 'Clubhouse & Association Office, Upkar Gardens Layout, Chandapura-Anekal Main Road, Bangalore - 560099, Karnataka',
+      contact_phone: '+91 80 2783 4567',
+      emergency_phone: '+91 94801 23456',
+      contact_email: 'contact@upkargardens.org',
+      admin_name: 'Sri. K. Venkatesh (President)',
+      admin_phone: '+91 98450 12345',
+      admin_email: 'president@upkargardens.org',
+      website_cms_updated_date: new Date().toISOString().split('T')[0]
+    };
     rows.forEach((r: any) => { settings[r.key] = r.value; });
     res.json(settings);
   } catch (error: any) {
@@ -2261,13 +2686,18 @@ apiRouter.get('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN',
   }
 });
 
-apiRouter.post('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN'), (req, res) => {
+apiRouter.post('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'TREASURER', 'SECRETARY', 'COMMITTEE_MEMBER'), (req, res) => {
   try {
     const user = (req as any).user;
     const { settings } = req.body;
 
     if (!settings || typeof settings !== 'object') {
       return res.status(400).json({ error: 'Settings object required' });
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    if (!settings.website_cms_updated_date) {
+      settings.website_cms_updated_date = today;
     }
 
     const updateStmt = db.prepare('INSERT OR REPLACE INTO settings (key, value, description) VALUES (?, ?, ?)');
@@ -2279,7 +2709,47 @@ apiRouter.post('/admin/cms/settings', authenticate, authorizeRoles('SUPER_ADMIN'
     });
 
     updateTx();
-    res.json({ success: true, message: 'Settings updated successfully' });
+
+    const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+    const updatedSettings: Record<string, string> = {};
+    rows.forEach((r) => { updatedSettings[r.key] = r.value; });
+
+    res.json({ success: true, message: 'Settings updated successfully', settings: updatedSettings });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Explicit Sync Website CMS endpoint
+apiRouter.post('/admin/cms/sync-website', authenticate, authorizeRoles('SUPER_ADMIN', 'ASSOCIATION_ADMIN', 'TREASURER', 'SECRETARY', 'COMMITTEE_MEMBER'), (req, res) => {
+  try {
+    const user = (req as any).user;
+    const { updatedDate, settings: customSettings } = req.body || {};
+    const syncDate = updatedDate || new Date().toISOString().split('T')[0];
+
+    const updateStmt = db.prepare('INSERT OR REPLACE INTO settings (key, value, description) VALUES (?, ?, ?)');
+    const syncTx = db.transaction(() => {
+      updateStmt.run('website_cms_updated_date', syncDate, 'Latest Website CMS Synchronized Date');
+      if (customSettings && typeof customSettings === 'object') {
+        for (const [key, val] of Object.entries(customSettings)) {
+          updateStmt.run(key, String(val), `Configured setting: ${key}`);
+        }
+      }
+      logAudit(user.id, user.name, user.role, 'WEBSITE_SYNC', 'Website CMS', null, `Synchronized website data with CMS as of ${syncDate}`);
+    });
+
+    syncTx();
+
+    const rows = db.prepare('SELECT key, value FROM settings').all() as { key: string; value: string }[];
+    const fullSettings: Record<string, string> = {};
+    rows.forEach((r) => { fullSettings[r.key] = r.value; });
+
+    res.json({
+      success: true,
+      message: `Website data synchronized successfully as of ${syncDate}`,
+      updatedDate: syncDate,
+      settings: fullSettings
+    });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

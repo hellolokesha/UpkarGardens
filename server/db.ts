@@ -54,7 +54,7 @@ export function initDatabase() {
       id TEXT PRIMARY KEY,
       site_number TEXT UNIQUE NOT NULL,
       house_number TEXT,
-      block_phase TEXT DEFAULT 'Phase 1',
+      block_phase TEXT DEFAULT 'North Block',
       property_type TEXT DEFAULT 'Plot / Site',
       address TEXT,
       status TEXT DEFAULT 'Vacant',
@@ -361,6 +361,75 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_issued_noc_num ON issued_nocs(noc_number);
   `);
 
+  // Safe migrations for newly added fields
+  try { db.exec("ALTER TABLE committee_members ADD COLUMN access_role TEXT DEFAULT 'COMMITTEE_MEMBER'"); } catch (_) {}
+  try { db.exec("ALTER TABLE committee_members ADD COLUMN user_id TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE committee_members ADD COLUMN login_username TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE committee_members ADD COLUMN portal_access_enabled INTEGER DEFAULT 0"); } catch (_) {}
+  try { db.exec("ALTER TABLE committee_members ADD COLUMN access_permissions TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE properties ADD COLUMN arrears_from_date TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE properties ADD COLUMN arrears_till_date TEXT"); } catch (_) {}
+  try { db.exec("ALTER TABLE properties ADD COLUMN arrears_months_count INTEGER DEFAULT 0"); } catch (_) {}
+  try { db.exec("ALTER TABLE properties ADD COLUMN arrears_notes TEXT"); } catch (_) {}
+
+  // Ensure all 176 demarcated sites exist in site directory with blank owner details and blank Block
+  try {
+    // Sync total_sites_count setting to 176 if it was 350
+    const countRow = db.prepare("SELECT value FROM settings WHERE key = 'total_sites_count'").get() as { value: string } | undefined;
+    if (!countRow || countRow.value === '350') {
+      db.prepare("INSERT OR REPLACE INTO settings (key, value, description) VALUES ('total_sites_count', '176', 'Total Layout Sites')").run();
+    }
+
+    const currentSitesCount = db.prepare("SELECT value FROM settings WHERE key = 'total_sites_count'").get() as { value: string } | undefined;
+    const targetCount = parseInt(currentSitesCount?.value || '176', 10) || 176;
+
+    const insertProp = db.prepare(`
+      INSERT OR IGNORE INTO properties (
+        id, site_number, house_number, block_phase, property_type, address, 
+        status, occupancy_status, owner_id, maintenance_category, monthly_maintenance, 
+        outstanding_balance, remarks
+      ) VALUES (?, ?, '', '', 'Plot / Site', ?, 'Vacant', 'None', NULL, 'cat_plot_res', 1500, 0, '')
+    `);
+
+    db.transaction(() => {
+      // Remove any out-of-range dummy properties > targetCount without bills
+      db.prepare("DELETE FROM properties WHERE CAST(site_number AS INTEGER) > ? AND id NOT IN (SELECT property_id FROM maintenance_bills)").run(targetCount);
+
+      // Create all sites up to targetCount
+      for (let i = 1; i <= targetCount; i++) {
+        insertProp.run(`prop_${i}`, String(i), `Plot No. ${i}, Upkar Gardens`);
+      }
+
+      // Leave owner details and Block blank as per user instruction
+      db.prepare(`
+        UPDATE properties 
+        SET block_phase = '', owner_id = NULL, house_number = ''
+        WHERE CAST(site_number AS INTEGER) BETWEEN 1 AND ?
+      `).run(targetCount);
+    })();
+  } catch (err) {
+    console.error('Error populating demarcated sites:', err);
+  }
+
+  // Update existing committee members with default access roles if empty
+  try {
+    db.prepare("UPDATE committee_members SET access_role = 'SUPER_ADMIN', portal_access_enabled = 1, user_id = 'u_admin', login_username = 'admin' WHERE id = 'cm_1'").run();
+    db.prepare("UPDATE committee_members SET access_role = 'ASSOCIATION_ADMIN', portal_access_enabled = 1 WHERE id = 'cm_2'").run();
+    db.prepare("UPDATE committee_members SET access_role = 'SECRETARY', portal_access_enabled = 1, user_id = 'u_secretary', login_username = 'secretary' WHERE id = 'cm_3'").run();
+    db.prepare("UPDATE committee_members SET access_role = 'TREASURER', portal_access_enabled = 1, user_id = 'u_treasurer', login_username = 'treasurer' WHERE id = 'cm_4'").run();
+    db.prepare("UPDATE committee_members SET access_role = 'COMMITTEE_MEMBER', portal_access_enabled = 1 WHERE id = 'cm_5'").run();
+    db.prepare("UPDATE committee_members SET access_role = 'COMMITTEE_MEMBER', portal_access_enabled = 1 WHERE id = 'cm_6'").run();
+  } catch (_) {}
+
+  // Ensure admin and website sync settings exist
+  try {
+    const insertSettingIfMissing = db.prepare('INSERT OR IGNORE INTO settings (key, value, description) VALUES (?, ?, ?)');
+    insertSettingIfMissing.run('admin_name', 'Sri. K. Venkatesh (President)', 'Association President / Principal Admin');
+    insertSettingIfMissing.run('admin_phone', '+91 98450 12345', 'President / Admin Mobile Phone');
+    insertSettingIfMissing.run('admin_email', 'president@upkargardens.org', 'Official President / Admin Email');
+    insertSettingIfMissing.run('website_cms_updated_date', new Date().toISOString().split('T')[0], 'Latest Website CMS Synchronized Date');
+  } catch (_) {}
+
   seedInitialData();
 }
 
@@ -379,7 +448,7 @@ function seedInitialData() {
   insertSetting.run('contact_phone', '+91 80 2783 4567', 'Official Contact Phone');
   insertSetting.run('contact_email', 'contact@upkargardens.org', 'Official Contact Email');
   insertSetting.run('emergency_phone', '+91 94801 23456', '24x7 Security & Emergency Desk');
-  insertSetting.run('total_sites_count', '350', 'Total Layout Sites');
+  insertSetting.run('total_sites_count', '176', 'Total Layout Sites');
   insertSetting.run('financial_year', '2026-27', 'Active Financial Year');
   insertSetting.run('currency_symbol', '₹', 'Currency Symbol');
   insertSetting.run('receipt_prefix', 'UGOA/REC/2026-27/', 'Prefix for maintenance receipts');
@@ -454,8 +523,8 @@ function seedInitialData() {
   `);
 
   // Owner 1: Site 125 (Demo Primary Owner for login testing)
-  insertOwner.run('own_125', 'Lokesha M.', 'Sowmya L.', '9876543210', '9876543211', 'hello.lokesha@gmail.com', 'Site 125, Upkar Gardens Phase 1, Bangalore', 'Individual', 'Active');
-  insertProp.run('prop_125', '125', 'UG-45', 'Phase 1 - A Block', 'Constructed Villa', 'Plot No. 125, 2nd Main, Upkar Gardens', 'Occupied', 'Self', 'own_125', 'cat_villa', 2500, 4500, 'Resident since 2021');
+  insertOwner.run('own_125', 'Lokesha M.', 'Sowmya L.', '9876543210', '9876543211', 'hello.lokesha@gmail.com', 'Site 125, Upkar Gardens North Block, Bangalore', 'Individual', 'Active');
+  insertProp.run('prop_125', '125', 'UG-45', 'North Block', 'Constructed Villa', 'Plot No. 125, 2nd Main, Upkar Gardens', 'Occupied', 'Self', 'own_125', 'cat_villa', 2500, 4500, 'Resident since 2021');
 
   // Also create a linked user login for Owner 125
   insertUser.run('u_own_125', 'owner125', 'owner123', 'OWNER', 'hello.lokesha@gmail.com', '9876543210', 'Lokesha M.');
@@ -463,23 +532,23 @@ function seedInitialData() {
 
   // Owner 2: Site 42
   insertOwner.run('own_42', 'Sunil Kumar Hegde', 'Rekha Hegde', '9845112233', '9845112234', 'sunil.hegde@example.com', 'Site 42, 1st Cross, Upkar Gardens', 'Joint', 'Active');
-  insertProp.run('prop_42', '42', 'UG-12', 'Phase 1 - A Block', 'Constructed House', 'Plot No. 42, 1st Cross, Upkar Gardens', 'Occupied', 'Tenant', 'own_42', 'cat_villa', 2500, 0, 'Maintenance paid up to date');
+  insertProp.run('prop_42', '42', 'UG-12', 'North Block', 'Constructed House', 'Plot No. 42, 1st Cross, Upkar Gardens', 'Occupied', 'Tenant', 'own_42', 'cat_villa', 2500, 0, 'Maintenance paid up to date');
 
   // Owner 3: Site 108
   insertOwner.run('own_108', 'Dr. Manjunatha Reddy', '', '9880123456', '', 'dr.reddy@example.com', '#34, 5th Block, Jayanagar, Bangalore', 'Individual', 'Active');
-  insertProp.run('prop_108', '108', '', 'Phase 2 - B Block', 'Residential Plot', 'Plot No. 108, 4th Cross, Upkar Gardens', 'Vacant', 'None', 'own_108', 'cat_plot_res', 1500, 6000, 'Pending for 4 quarters');
+  insertProp.run('prop_108', '108', '', 'South Block', 'Residential Plot', 'Plot No. 108, 4th Cross, Upkar Gardens', 'Vacant', 'None', 'own_108', 'cat_plot_res', 1500, 6000, 'Pending for 4 quarters');
 
   // Owner 4: Site 15
   insertOwner.run('own_15', 'C. H. Chandrashekar', 'Gayathri C.', '9900234567', '', 'chandra.shekar@example.com', 'Site 15, 3rd Main, Upkar Gardens', 'Individual', 'Active');
-  insertProp.run('prop_15', '15', 'UG-05', 'Phase 1 - A Block', 'Constructed House', 'Plot No. 15, 3rd Main, Upkar Gardens', 'Occupied', 'Self', 'own_15', 'cat_villa', 2500, 2500, 'Current month pending');
+  insertProp.run('prop_15', '15', 'UG-05', 'North Block', 'Constructed House', 'Plot No. 15, 3rd Main, Upkar Gardens', 'Occupied', 'Self', 'own_15', 'cat_villa', 2500, 2500, 'Current month pending');
 
   // Owner 5: Site 210
   insertOwner.run('own_210', 'K. V. Subrahmanya', '', '9741098765', '', 'subramanya.kv@example.com', 'Site 210, 6th Cross, Upkar Gardens', 'Individual', 'Active');
-  insertProp.run('prop_210', '210', '', 'Phase 2 - C Block', 'Residential Plot', 'Plot No. 210, 6th Cross, Upkar Gardens', 'Vacant', 'None', 'own_210', 'cat_plot_res', 1500, 0, 'Advance paid ₹3,000');
+  insertProp.run('prop_210', '210', '', 'South Block', 'Residential Plot', 'Plot No. 210, 6th Cross, Upkar Gardens', 'Vacant', 'None', 'own_210', 'cat_plot_res', 1500, 0, 'Advance paid ₹3,000');
 
   // Owner 6: Site 88
   insertOwner.run('own_88', 'Rajeshwari Sharma', 'Rohit Sharma', '9448123789', '', 'rajeshwari.s@example.com', 'Site 88, 2nd Cross, Upkar Gardens', 'Joint', 'Active');
-  insertProp.run('prop_88', '88', 'UG-28', 'Phase 1 - B Block', 'Constructed House', 'Plot No. 88, 2nd Cross, Upkar Gardens', 'Under Construction', 'None', 'own_88', 'cat_villa', 2500, 7500, 'Construction ongoing');
+  insertProp.run('prop_88', '88', 'UG-28', 'North Block', 'Constructed House', 'Plot No. 88, 2nd Cross, Upkar Gardens', 'Under Construction', 'None', 'own_88', 'cat_villa', 2500, 7500, 'Construction ongoing');
 
   // Seed Bills & Ledger for Site 125
   const insertBill = db.prepare(`

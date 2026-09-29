@@ -4,12 +4,14 @@ import {
   TrendingUp, AlertTriangle, CheckCircle2, ShieldCheck, ArrowUpRight 
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAssociation } from '../../context/AssociationContext';
 
 interface AdminDashboardProps {
   onNavigate: (module: string) => void;
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) => {
+  const { regNo, regDate, settings, totalSites, cmsUpdatedDate } = useAssociation();
   const [stats, setStats] = useState<any>(null);
   const [analytics, setAnalytics] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -60,6 +62,52 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ onNavigate }) =>
             className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer border border-slate-300"
           >
             Review NOCs ({nocs.pending})
+          </button>
+        </div>
+      </div>
+
+      {/* Association Statutory Identity Strip */}
+      <div className="bg-white rounded-2xl border border-emerald-200/90 p-4 sm:p-5 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-emerald-50/60 via-white to-amber-50/40">
+        <div className="space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 uppercase tracking-wide">
+              Official Registered Society
+            </span>
+            <span className="text-[11px] text-slate-500">Karnataka Societies Registration Act, 1960</span>
+          </div>
+          <h3 className="font-extrabold text-base sm:text-lg text-slate-900 font-serif">
+            {settings.association_name || 'Upkar Gardens Owners Association (R)'}
+          </h3>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-600 font-mono">
+            <div>
+              <span className="text-slate-400 font-sans">Govt. Reg No:</span>{' '}
+              <strong className="text-emerald-950 font-bold">{regNo}</strong>
+            </div>
+            <div>
+              <span className="text-slate-400 font-sans">Registration Date:</span>{' '}
+              <strong className="text-emerald-950 font-bold">{regDate}</strong>
+            </div>
+            <div>
+              <span className="text-slate-400 font-sans">Demarcated Sites:</span>{' '}
+              <strong className="text-slate-800">{totalSites || 350} Sites</strong>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="text-right hidden sm:block">
+            <div className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Live CMS Status</div>
+            <div className="text-xs font-semibold text-emerald-800 flex items-center gap-1 justify-end">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              <span>Synced ({cmsUpdatedDate || 'Live'})</span>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate('cms')}
+            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border border-emerald-300 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+          >
+            <span>Edit Reg Details</span>
+            <ArrowUpRight className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

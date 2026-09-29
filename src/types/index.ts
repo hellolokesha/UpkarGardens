@@ -55,6 +55,10 @@ export interface Property {
   primary_mobile?: string;
   alt_mobile?: string;
   owner_email?: string;
+  arrears_from_date?: string;
+  arrears_till_date?: string;
+  arrears_months_count?: number;
+  arrears_notes?: string;
 }
 
 export interface MaintenanceBill {
@@ -266,6 +270,12 @@ export interface CommitteeMember {
   term_end?: string;
   display_order: number;
   show_contact_public: number;
+  access_role?: UserRole | 'NO_ACCESS';
+  user_id?: string;
+  login_username?: string;
+  portal_access_enabled?: number | boolean;
+  access_permissions?: string[] | string;
+  has_active_account?: boolean;
 }
 
 export interface RuleRegulation {
@@ -305,4 +315,33 @@ export interface NotificationItem {
   is_read: number;
   type: string;
   created_at: string;
+}
+
+export interface AssociationSettings {
+  association_name: string;
+  registration_number: string;
+  registration_date: string;
+  total_sites_count: string;
+  address: string;
+  contact_phone: string;
+  emergency_phone: string;
+  contact_email: string;
+  admin_name: string;
+  admin_phone: string;
+  admin_email: string;
+  website_cms_updated_date: string;
+  about_mission?: string;
+  about_vision?: string;
+  [key: string]: string | undefined;
+}
+
+export interface AssociationInfo {
+  settings: AssociationSettings;
+  stats: {
+    totalSites: number;
+    occupiedSites: number;
+    totalOwners: number;
+    layoutArea: string;
+    establishedYear: string;
+  };
 }

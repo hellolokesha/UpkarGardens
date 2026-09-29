@@ -71,7 +71,7 @@ export const OwnerDashboard: React.FC<OwnerDashboardProps> = ({
           <div className="border-l border-slate-200 pl-4">
             <span className="text-slate-400 block font-medium">Phase / Block</span>
             <span className="text-base font-semibold text-slate-800">
-              {property.block_phase || 'Phase 1'}
+              {property.block_phase || 'North Block'}
             </span>
           </div>
           <div className="border-l border-slate-200 pl-4">

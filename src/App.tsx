@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AssociationProvider } from './context/AssociationContext';
 import { Navbar } from './components/common/Navbar';
 import { Footer } from './components/common/Footer';
 import { AuthModal } from './components/auth/AuthModal';
@@ -212,7 +213,9 @@ function MainApp() {
 export default function App() {
   return (
     <AuthProvider>
-      <MainApp />
+      <AssociationProvider>
+        <MainApp />
+      </AssociationProvider>
     </AuthProvider>
   );
 }

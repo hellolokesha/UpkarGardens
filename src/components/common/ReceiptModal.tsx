@@ -81,7 +81,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({ receipt, qrCodeSvg, 
                 Site #{receipt.site_number} {receipt.house_number ? `(House: ${receipt.house_number})` : ''}
               </div>
               <div className="text-xs text-slate-500 pt-2">Phase / Block</div>
-              <div className="font-medium text-slate-800">{receipt.block_phase || 'Phase 1'}</div>
+              <div className="font-medium text-slate-800">{receipt.block_phase || 'North Block'}</div>
             </div>
           </div>
 

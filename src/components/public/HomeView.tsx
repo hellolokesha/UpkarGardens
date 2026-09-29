@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShieldCheck, CreditCard, FileCheck, Bell, FolderDown, MessageSquare, 
-  ArrowRight, Calendar, Users, CheckCircle2, AlertTriangle, Search
+  ArrowRight, Calendar, Users, CheckCircle2, AlertTriangle, Search, Clock
 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAssociation } from '../../context/AssociationContext';
 import { Notice, Announcement, EventItem, CommitteeMember } from '../../types';
 
 interface HomeViewProps {
@@ -12,6 +13,7 @@ interface HomeViewProps {
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({ setCurrentView, openAuthModal }) => {
+  const { regNo, totalSites, cmsUpdatedDate, adminName, adminPhone } = useAssociation();
   const [notices, setNotices] = useState<Notice[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [events, setEvents] = useState<EventItem[]>([]);
@@ -39,9 +41,15 @@ export const HomeView: React.FC<HomeViewProps> = ({ setCurrentView, openAuthModa
 
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
           <div className="text-center max-w-3xl mx-auto space-y-6">
-            <div className="inline-flex items-center gap-2 bg-emerald-800/60 border border-emerald-600/50 px-3.5 py-1.5 rounded-full text-xs font-semibold text-emerald-200 backdrop-blur-xs">
-              <ShieldCheck className="w-4 h-4 text-amber-300" />
-              <span>Official Registered Society · No. DRO-1/SOR/142/2018-19</span>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <div className="inline-flex items-center gap-2 bg-emerald-800/60 border border-emerald-600/50 px-3.5 py-1.5 rounded-full text-xs font-semibold text-emerald-200 backdrop-blur-xs">
+                <ShieldCheck className="w-4 h-4 text-amber-300" />
+                <span>Official Registered Society · No. {regNo}</span>
+              </div>
+              <div className="inline-flex items-center gap-1.5 bg-emerald-950/70 border border-emerald-700/60 px-3 py-1 rounded-full text-[11px] font-medium text-emerald-300">
+                <Clock className="w-3.5 h-3.5 text-amber-300" />
+                <span>Website Data Synced: <strong className="font-mono text-white">{cmsUpdatedDate}</strong></span>
+              </div>
             </div>
 
             <h1 className="text-3xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-white leading-tight font-serif">
@@ -236,8 +244,8 @@ export const HomeView: React.FC<HomeViewProps> = ({ setCurrentView, openAuthModa
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="bg-slate-900 text-white rounded-2xl p-6 sm:p-8 shadow-sm border border-slate-800 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
           <div>
-            <div className="text-2xl sm:text-4xl font-extrabold text-amber-400 font-serif">350</div>
-            <div className="text-xs text-slate-300 font-medium mt-1">Layout Sites / Plots</div>
+            <div className="text-2xl sm:text-4xl font-extrabold text-amber-400 font-serif">{totalSites}</div>
+            <div className="text-xs text-slate-300 font-medium mt-1">Layout Sites (North & South Blocks)</div>
           </div>
           <div>
             <div className="text-2xl sm:text-4xl font-extrabold text-emerald-400 font-serif">45+</div>
